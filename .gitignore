@@ -37,7 +37,6 @@ data/pinterest_cache/
 data/walmart_products/
 data/ar_assets/thumbnails/
 data/ar_assets/glb_files/
-video/
 
 # IDE/editor
 .idea/
