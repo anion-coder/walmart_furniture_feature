@@ -1,0 +1,44 @@
+# macOS
+.DS_Store
+
+# Python cache/build artifacts
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment and local config secrets
+.env
+.env.*
+config/development.yaml
+
+# Logs
+*.log
+logs/
+output.log
+
+# Runtime/generated project data
+data/embeddings/
+data/pinterest_cache/
+data/walmart_products/
+data/ar_assets/thumbnails/
+data/ar_assets/glb_files/
+video/
+
+# IDE/editor
+.idea/
+.vscode/
