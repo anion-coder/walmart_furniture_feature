@@ -1,21 +1,21 @@
 """
-Room video analysis agent using Qwen2.5-VL-7B-Instruct from Hugging Face.
+Room video analysis agent using Qwen2.5-VL-7B-Instruct via HuggingFace
+Inference API (serverless). No model download required.
 
 Drop-in replacement for GeminiVideoAgent — same public API, same JSON output
 structure, so the orchestrator can swap between them with a single config flag.
 """
 
 import asyncio
+import base64
+import io
 import json
 import os
 from datetime import datetime
 from typing import Dict, Any, List
 
-import numpy as np
-import torch
 from PIL import Image
-from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
-from qwen_vl_utils import process_vision_info
+from huggingface_hub import InferenceClient
 
 from ..services.video_utils import VideoProcessor
 from ..utils.logger import setup_logger
@@ -24,7 +24,7 @@ logger = setup_logger(__name__)
 
 
 class HuggingFaceVideoAgent:
-    """Analyse room video frames with Qwen2.5-VL-7B-Instruct."""
+    """Analyse room video frames with Qwen2.5-VL via HF Inference API."""
 
     def __init__(self, config: Dict[str, Any]):
         hf_cfg = config.get("ai_models", {}).get("huggingface", {}) or {}
@@ -41,36 +41,24 @@ class HuggingFaceVideoAgent:
         )
 
         self.video_processor = VideoProcessor()
-        self.model = None
-        self.processor = None
-        self._load_model()
+        self.client = None
+        self._init_client()
 
     # ------------------------------------------------------------------
-    # Model loading
+    # Client init
     # ------------------------------------------------------------------
 
-    def _load_model(self):
-        """Load Qwen2.5-VL model and processor."""
+    def _init_client(self):
+        """Initialise the HuggingFace Inference API client."""
         try:
-            logger.info(f"Loading {self.model_id} ...")
-
-            # Pick the best available device + dtype automatically
-            self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-                self.model_id,
-                torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-                device_map="auto",
+            self.client = InferenceClient(
+                model=self.model_id,
                 token=self.hf_token,
             )
-            self.processor = AutoProcessor.from_pretrained(
-                self.model_id,
-                token=self.hf_token,
-            )
-
-            logger.info(f"Model loaded on {self.model.device}")
+            logger.info(f"HF Inference client ready for {self.model_id}")
         except Exception as e:
-            logger.error(f"Failed to load model: {e}")
-            self.model = None
-            self.processor = None
+            logger.error(f"Failed to create HF Inference client: {e}")
+            self.client = None
 
     # ------------------------------------------------------------------
     # Public API  (same signature as GeminiVideoAgent)
@@ -81,8 +69,8 @@ class HuggingFaceVideoAgent:
     ) -> Dict[str, Any]:
         """Analyse a room video and return structured JSON analysis."""
 
-        if self.model is None or self.processor is None:
-            logger.warning("Model not loaded — returning fallback analysis")
+        if self.client is None:
+            logger.warning("HF client not available — returning fallback analysis")
             return self._enhanced_fallback_analysis(user_preferences)
 
         try:
@@ -95,11 +83,11 @@ class HuggingFaceVideoAgent:
             )
             pil_images = [Image.fromarray(f) for f in frames]
 
-            # Run inference in a thread so we don't block the event loop
+            # Run inference via API in a thread so we don't block the event loop
             analysis = await asyncio.to_thread(
                 self._run_inference, pil_images, user_preferences
             )
-            analysis["analysis_method"] = "qwen2_5_vl"
+            analysis["analysis_method"] = "qwen2_5_vl_api"
             analysis["model_used"] = self.model_id
             return analysis
 
@@ -108,60 +96,43 @@ class HuggingFaceVideoAgent:
             return self._enhanced_fallback_analysis(user_preferences)
 
     # ------------------------------------------------------------------
-    # Inference
+    # Inference via HF Inference API
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _image_to_base64_url(image: Image.Image) -> str:
+        """Convert a PIL image to a base64 data URL for the API."""
+        buf = io.BytesIO()
+        image.save(buf, format="JPEG", quality=85)
+        b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+        return f"data:image/jpeg;base64,{b64}"
 
     def _run_inference(
         self, images: List[Image.Image], user_preferences: str
     ) -> Dict[str, Any]:
-        """Build the Qwen2.5-VL chat message, run generation, parse JSON."""
+        """Send frames + prompt to HF Inference API, parse JSON response."""
 
         prompt_text = self._create_room_analysis_prompt(user_preferences)
 
-        # Build multi-image chat message in Qwen VL format
-        image_content: list[dict] = [
-            {"type": "image", "image": img} for img in images
-        ]
-        messages = [
-            {
-                "role": "user",
-                "content": image_content + [{"type": "text", "text": prompt_text}],
-            }
-        ]
+        # Build multi-image content list for the chat_completion API
+        content: list[dict] = []
+        for img in images:
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": self._image_to_base64_url(img)},
+            })
+        content.append({"type": "text", "text": prompt_text})
 
-        # Processor expects the chat-template text + pixel values
-        text = self.processor.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
+        messages = [{"role": "user", "content": content}]
+
+        response = self.client.chat_completion(
+            messages=messages,
+            max_tokens=self.max_new_tokens,
+            temperature=self.temperature,
         )
-        image_inputs, video_inputs = process_vision_info(messages)
-        inputs = self.processor(
-            text=[text],
-            images=image_inputs,
-            videos=video_inputs,
-            padding=True,
-            return_tensors="pt",
-        ).to(self.model.device)
 
-        with torch.no_grad():
-            generated_ids = self.model.generate(
-                **inputs,
-                max_new_tokens=self.max_new_tokens,
-                temperature=self.temperature,
-                do_sample=self.temperature > 0,
-            )
-
-        # Strip the prompt tokens so we only decode the new output
-        generated_ids_trimmed = [
-            out[len(inp) :]
-            for inp, out in zip(inputs.input_ids, generated_ids)
-        ]
-        response_text = self.processor.batch_decode(
-            generated_ids_trimmed,
-            skip_special_tokens=True,
-            clean_up_tokenization_spaces=False,
-        )[0]
-
-        logger.info(f"Qwen2.5-VL response length: {len(response_text)} chars")
+        response_text = response.choices[0].message.content
+        logger.info(f"HF API response length: {len(response_text)} chars")
         return self._parse_analysis_response(response_text, user_preferences)
 
     # ------------------------------------------------------------------
@@ -213,7 +184,7 @@ Return ONLY valid JSON (no markdown, no extra text):
 }}"""
 
     # ------------------------------------------------------------------
-    # Response parsing  (shared with Gemini agent)
+    # Response parsing
     # ------------------------------------------------------------------
 
     def _parse_analysis_response(
@@ -268,7 +239,7 @@ Return ONLY valid JSON (no markdown, no extra text):
                 psp["color_searches"] = self._default_color_searches(analysis)
 
         analysis["analyzed_at"] = datetime.now().isoformat()
-        analysis["api_version"] = "qwen2_5_vl_local"
+        analysis["api_version"] = "qwen2_5_vl_inference_api"
         return analysis
 
     # ------------------------------------------------------------------
@@ -311,7 +282,7 @@ Return ONLY valid JSON (no markdown, no extra text):
             "analysis_method": "enhanced_fallback",
             "video_analysis_notes": f"Fallback based on preferences: {user_preferences}",
             "analyzed_at": datetime.now().isoformat(),
-            "api_version": "qwen2_5_vl_local",
+            "api_version": "qwen2_5_vl_inference_api",
         }
 
     def _default_pinterest_params(
