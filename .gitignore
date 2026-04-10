@@ -24,7 +24,6 @@ ENV/
 # Environment and local config secrets
 .env
 .env.*
-config/development.yaml
 
 # Logs
 *.log

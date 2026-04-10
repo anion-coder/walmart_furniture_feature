@@ -1,0 +1,43 @@
+api:
+  host: "0.0.0.0"
+  port: 8000
+  debug: true
+
+ai_models:
+  gemini:
+    api_key: "AIzaSyD_VfWbzyekKTlXE63pYdALP4NsyygtID4"
+    model: "gemini-2.5-flash"
+    max_tokens: 2000
+    temperature: 0.3
+
+coherence:
+  bypass: true
+  
+database:
+  url: "postgresql://postgres:QvOWvNfXdfozA1VP@db.zsuuhpozpvexyqnanipf.supabase.co:5432/postgres"
+  
+  
+redis:
+  url: "redis://default:TWSM6TNtOeN6GbegsS5hmFq48X3XibvS@redis-16230.c16.us-east-1-2.ec2.redns.redis-cloud.com:16230"
+  task_ttl: 3600
+  recommendations_ttl: 7200
+  
+ar_assets:
+  base_path: "./data/ar_assets"
+  supported_formats: [".glb", ".usdz"]
+  max_file_size: "50MB"
+  
+duckduckgo:
+  search_delay: 0.5
+  max_concurrent: 3
+  retry_attempts: 2
+  timeout: 10
+  
+processing:
+  max_workers: 4
+  video_timeout: 300
+  max_video_size: "100MB"
+
+serpapi:
+  api_key: "f12b749338711332825da3e42db19549521a5e7e6a0aee41770356e48ea5dc05"
+
