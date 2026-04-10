@@ -233,6 +233,12 @@ class WalmartProductFetcher:
 
         primary_color, secondary_color = self._guess_colors(title, desc)
 
+        raw_rating = item.get("rating", 0)
+        if isinstance(raw_rating, dict):
+            rating_val = raw_rating.get("average_rating", 0)
+        else:
+            rating_val = raw_rating
+
         return {
             "walmart_id": walmart_id,
             "name": title[:255],
@@ -247,7 +253,7 @@ class WalmartProductFetcher:
             "dimensions": json.dumps(self._parse_dimensions(title, desc)),
             "image_urls": json.dumps([thumbnail] if thumbnail else []),
             "brand": self._extract_brand(item, title),
-            "rating": round(float(item.get("rating", {}).get("average_rating", 0) or random.uniform(3.8, 4.9)), 1),
+            "rating": round(float(rating_val) or random.uniform(3.8, 4.9), 1),
             "stock_status": "in_stock",
             "has_glb_file": True,  # pipeline filters on this
         }
