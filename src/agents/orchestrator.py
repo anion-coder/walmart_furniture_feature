@@ -5,6 +5,7 @@ import uuid
 
 from ..utils.logger import setup_logger
 from .gemini_video_agent import GeminiVideoAgent
+from .huggingface_video_agent import HuggingFaceVideoAgent
 from .pinterest_search_agent import PinterestSearchAgent
 from .gemini_pin_analysis_agent import GeminiPinAnalysisAgent
 from .product_match_agent import ProductMatchAgent
@@ -16,9 +17,17 @@ class OrchestratorAgent:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.task_id = None
-        
-        # Initialize agents
-        self.gemini_video_agent = GeminiVideoAgent(config)
+
+        # Initialize video agent based on config
+        video_provider = config.get("ai_models", {}).get("video_provider", "gemini")
+        if video_provider == "huggingface":
+            logger.info("Using HuggingFace Qwen2.5-VL for video analysis")
+            self.video_agent = HuggingFaceVideoAgent(config)
+        else:
+            logger.info("Using Gemini for video analysis")
+            self.video_agent = GeminiVideoAgent(config)
+
+        # Initialize remaining agents
         self.pinterest_agent = PinterestSearchAgent(config)
         self.gemini_pin_agent = GeminiPinAnalysisAgent(config)
         self.product_agent = ProductMatchAgent(config)
@@ -33,8 +42,8 @@ class OrchestratorAgent:
             logger.info(f"Starting workflow {self.task_id}")
             
             # Stage 1: Room video analysis
-            logger.info("Stage 1: Analyzing room video with Gemini")
-            room_analysis = await self.gemini_video_agent.analyze_room_video(
+            logger.info("Stage 1: Analyzing room video")
+            room_analysis = await self.video_agent.analyze_room_video(
                 video_path, user_preferences
             )
             

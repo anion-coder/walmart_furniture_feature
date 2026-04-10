@@ -4,11 +4,22 @@ api:
   debug: true
 
 ai_models:
+  # Set to "huggingface" to use Qwen2.5-VL, or "gemini" for Gemini
+  video_provider: "huggingface"
+
   gemini:
     api_key: "AIzaSyD_VfWbzyekKTlXE63pYdALP4NsyygtID4"
     model: "gemini-2.5-flash"
     max_tokens: 2000
     temperature: 0.3
+
+  huggingface:
+    model: "Qwen/Qwen2.5-VL-7B-Instruct"
+    max_tokens: 2048
+    temperature: 0.3
+    num_frames: 3
+    # Optional: paste token here, or use HF_TOKEN env var, or run `huggingface-cli login`
+    access_token: ""
 
 coherence:
   bypass: true
